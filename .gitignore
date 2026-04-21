@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+.vscode/
+.idea/
+
+# 数据和模型权重不提交
+data/MNIST/
+data/cifar-10-*/
+data/cifar-10-python.tar.gz
+data/aclImdb/
+data/aclImdb_v1.tar.gz
+data/**/raw/
+*.pt
+*.pth
