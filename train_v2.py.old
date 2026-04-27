@@ -1,0 +1,389 @@
+# =============================================================
+# 文件：train_v2.py（新版，已整合梯度范数记录功能）
+# 功能：统一训练框架，支持PlainCNN18与ResNet18切换训练
+# 用法：python train_v2.py --model plain   (训练Plain CNN)
+#        python train_v2.py --model resnet  (训练ResNet18)
+# 输出：results/ 下的：
+#   ① loss_{model}.png       — 训练/测试Loss曲线
+#   ② acc_{model}.png        — 训练/测试Accuracy曲线
+#   ③ lr_{model}.png         — 学习率变化曲线
+#   ④ best_{model}.pth       — 最优模型权重
+#   ⑤ log_{model}.json       — 完整训练日志
+#   ⑥ grad_norm_{model}.json — 【新增】梯度范数日志（供compare.py使用）
+# =============================================================
+
+import os
+import sys
+import time
+import argparse
+import json
+
+import numpy as np          # 【新增】用于梯度范数统计计算
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import matplotlib
+matplotlib.use('Agg')       # 无显示器环境使用非交互后端
+import matplotlib.pyplot as plt
+
+# 导入自定义模块
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from data_utils_v2 import get_data_loaders
+from models.plain_cnn_18layer import PlainCNN18
+from models.resnet18_cifar10 import ResNet18
+
+# 确保输出目录存在
+os.makedirs('results', exist_ok=True)
+
+
+# ════════════════════════════════════════════════════════════════
+# 训练配置（在这里修改超参数）
+# ════════════════════════════════════════════════════════════════
+CONFIG = {
+    'batch_size':    128,
+    'epochs':        100,
+    # 优化器选择：'adam' 或 'sgd'
+    'optimizer':     'sgd',
+    # 初始学习率
+    'lr':            0.1,
+    # SGD动量（仅sgd有效）
+    'momentum':      0.9,
+    # 权重衰减（L2正则化，防止过拟合）
+    'weight_decay':  5e-4,
+    # 学习率分段衰减：第50、75个epoch各乘一次gamma
+    'lr_milestones': [50, 75],
+    'lr_gamma':      0.1,
+    # 数据目录
+    'data_dir':      './data',
+}
+
+
+# ════════════════════════════════════════════════════════════════
+# 单轮训练函数（新版：同步收集每个batch的梯度范数）
+# ════════════════════════════════════════════════════════════════
+def train_one_epoch(model, loader, criterion, optimizer, device):
+    """
+    训练一个epoch，返回平均Loss、准确率，以及本epoch的梯度范数列表
+
+    【新增说明】梯度范数（Gradient Norm）：
+      - 每次 loss.backward() 后，模型所有参数都有了梯度
+      - 把全部参数梯度拼成一个大向量，计算它的L2范数
+      - 范数越大 → 梯度越强，学习信号越充足
+      - 范数持续接近0 → 梯度消失，模型停止学习
+      - 对比两模型的梯度范数，可量化证明残差连接的效果
+
+    返回：
+        avg_loss         : 本epoch平均训练损失
+        accuracy         : 本epoch训练准确率（%）
+        batch_grad_norms : 本epoch每个batch的梯度L2范数列表
+    """
+    model.train()       # 设为训练模式（启用BN和Dropout）
+    total_loss       = 0.0
+    total_correct    = 0
+    total_samples    = 0
+    batch_grad_norms = []   # 【新增】收集本epoch每个batch的梯度范数
+
+    for batch_idx, (images, labels) in enumerate(loader):
+        # 将数据移到GPU（若有）
+        images, labels = images.to(device), labels.to(device)
+
+        # 前向传播：计算预测输出
+        outputs = model(images)
+        loss    = criterion(outputs, labels)
+
+        # 反向传播：计算梯度
+        optimizer.zero_grad()   # 清空上一轮梯度，避免累积
+        loss.backward()         # 反向传播，为每个参数计算梯度
+
+        # ── 【新增】计算本batch所有参数梯度的L2范数 ──────────
+        # 思路：遍历所有有梯度的参数，把每个参数的梯度范数平方加起来
+        #       最后开方，得到整体梯度向量的L2范数
+        total_norm = 0.0
+        for p in model.parameters():
+            if p.grad is not None:              # 有些层可能没有梯度
+                param_norm   = p.grad.data.norm(2)      # 该参数梯度的L2范数
+                total_norm  += param_norm.item() ** 2   # 累加平方
+        total_norm = total_norm ** 0.5          # 开方 → 整体L2范数
+        batch_grad_norms.append(total_norm)     # 记录本batch结果
+        # ─────────────────────────────────────────────────────
+
+        # 更新参数
+        optimizer.step()
+
+        # 统计损失和正确预测数
+        total_loss    += loss.item() * images.size(0)
+        _, predicted   = outputs.max(1)         # 取最大概率的类别索引
+        total_correct += predicted.eq(labels).sum().item()
+        total_samples += images.size(0)
+
+    avg_loss = total_loss / total_samples
+    accuracy = 100.0 * total_correct / total_samples
+
+    # 【新增】返回值增加梯度范数列表
+    return avg_loss, accuracy, batch_grad_norms
+
+
+# ════════════════════════════════════════════════════════════════
+# 单轮评估函数（与原版完全一致，无修改）
+# ════════════════════════════════════════════════════════════════
+def evaluate(model, loader, criterion, device):
+    """
+    在测试集上评估模型，返回平均Loss和准确率
+    注意：评估时不计算梯度（with torch.no_grad()），节省内存和时间
+    """
+    model.eval()        # 设为评估模式（关闭BN更新、Dropout等）
+    total_loss    = 0.0
+    total_correct = 0
+    total_samples = 0
+
+    with torch.no_grad():   # 评估时不需要计算梯度
+        for images, labels in loader:
+            images, labels = images.to(device), labels.to(device)
+            outputs = model(images)
+            loss    = criterion(outputs, labels)
+
+            total_loss    += loss.item() * images.size(0)
+            _, predicted   = outputs.max(1)
+            total_correct += predicted.eq(labels).sum().item()
+            total_samples += images.size(0)
+
+    avg_loss = total_loss / total_samples
+    accuracy = 100.0 * total_correct / total_samples
+    return avg_loss, accuracy
+
+
+# ════════════════════════════════════════════════════════════════
+# 绘制并保存训练曲线（与原版完全一致，无修改）
+# ════════════════════════════════════════════════════════════════
+def plot_and_save(history, model_name):
+    """
+    绘制Loss、Accuracy、LearningRate三条曲线并保存到results/
+    参数：
+        history   : 字典，包含各指标的列表
+        model_name: 模型名称（用于文件命名）
+    """
+    epochs = range(1, len(history['train_loss']) + 1)
+
+    # ── 图1：Loss曲线 ─────────────────────────────────────────
+    plt.figure(figsize=(8, 5))
+    plt.plot(epochs, history['train_loss'], label='Train Loss',
+             color='#2980B9', linewidth=2)
+    plt.plot(epochs, history['test_loss'],  label='Test Loss',
+             color='#E74C3C', linewidth=2, linestyle='--')
+    plt.xlabel('Epoch', fontsize=12)
+    plt.ylabel('Loss',  fontsize=12)
+    plt.title(f'{model_name} — Loss Curve', fontsize=13, fontweight='bold')
+    plt.legend(fontsize=11)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(f'results/loss_{model_name}.png', dpi=150)
+    plt.close()
+
+    # ── 图2：Accuracy曲线 ─────────────────────────────────────
+    plt.figure(figsize=(8, 5))
+    plt.plot(epochs, history['train_acc'], label='Train Acc',
+             color='#2980B9', linewidth=2)
+    plt.plot(epochs, history['test_acc'],  label='Test Acc',
+             color='#E74C3C', linewidth=2, linestyle='--')
+    plt.xlabel('Epoch', fontsize=12)
+    plt.ylabel('Accuracy (%)', fontsize=12)
+    plt.title(f'{model_name} — Accuracy Curve', fontsize=13, fontweight='bold')
+    plt.legend(fontsize=11)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(f'results/acc_{model_name}.png', dpi=150)
+    plt.close()
+
+    # ── 图3：Learning Rate曲线 ───────────────────────────────
+    plt.figure(figsize=(8, 5))
+    plt.plot(epochs, history['lr'], color='#27AE60', linewidth=2)
+    plt.xlabel('Epoch', fontsize=12)
+    plt.ylabel('Learning Rate', fontsize=12)
+    plt.title(f'{model_name} — Learning Rate Schedule',
+              fontsize=13, fontweight='bold')
+    plt.yscale('log')       # 对数坐标，衰减台阶更清晰
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(f'results/lr_{model_name}.png', dpi=150)
+    plt.close()
+
+    print(f"✅ 训练曲线（Loss / Acc / LR）已保存至 results/")
+
+
+# ════════════════════════════════════════════════════════════════
+# 主训练流程
+# ════════════════════════════════════════════════════════════════
+def main():
+    # ── 命令行参数解析 ────────────────────────────────────────
+    parser = argparse.ArgumentParser(description='训练Plain CNN或ResNet18')
+    parser.add_argument(
+        '--model', type=str, default='resnet',
+        choices=['plain', 'resnet'],
+        help="选择模型：'plain'=PlainCNN18, 'resnet'=ResNet18"
+    )
+    args = parser.parse_args()
+
+    # ── 确定模型名称和实例 ────────────────────────────────────
+    if args.model == 'plain':
+        model_name = 'plain_cnn'
+        model      = PlainCNN18(num_classes=10)
+    else:
+        model_name = 'resnet18'
+        model      = ResNet18(num_classes=10)
+
+    # ── 设备选择（优先使用GPU）───────────────────────────────
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    print(f"\n{'='*55}")
+    print(f"  模型  : {model_name}")
+    print(f"  设备  : {device}")
+    print(f"  Epoch : {CONFIG['epochs']}")
+    print(f"  优化器: {CONFIG['optimizer'].upper()}  "
+          f"LR={CONFIG['lr']}  WD={CONFIG['weight_decay']}")
+    print(f"  LR衰减: Epoch {CONFIG['lr_milestones']}  "
+          f"× {CONFIG['lr_gamma']}")
+    print(f"{'='*55}\n")
+
+    model = model.to(device)
+
+    # ── 数据加载 ──────────────────────────────────────────────
+    train_loader, test_loader = get_data_loaders(
+        batch_size=CONFIG['batch_size'],
+        data_dir=CONFIG['data_dir']
+    )
+
+    # ── 损失函数（多分类标准选择）────────────────────────────
+    criterion = nn.CrossEntropyLoss()
+
+    # ── 优化器 ────────────────────────────────────────────────
+    if CONFIG['optimizer'] == 'adam':
+        optimizer = optim.Adam(
+            model.parameters(),
+            lr=CONFIG['lr'],
+            weight_decay=CONFIG['weight_decay']
+        )
+    else:
+        # SGD + momentum（ResNet论文原始配置，效果更好）
+        optimizer = optim.SGD(
+            model.parameters(),
+            lr=CONFIG['lr'],
+            momentum=CONFIG['momentum'],
+            weight_decay=CONFIG['weight_decay']
+        )
+
+    # ── 学习率调度器：MultiStepLR（分阶段衰减）──────────────
+    # 在第50、75个epoch时，将LR各乘一次0.1
+    # 例：0.1 → 0.01（第50epoch）→ 0.001（第75epoch）
+    scheduler = optim.lr_scheduler.MultiStepLR(
+        optimizer,
+        milestones=CONFIG['lr_milestones'],
+        gamma=CONFIG['lr_gamma']
+    )
+
+    # ── 训练记录字典 ──────────────────────────────────────────
+    # 【修改1/3】：在history字典中新增两个梯度范数字段
+    history = {
+        'train_loss': [],
+        'train_acc':  [],
+        'test_loss':  [],
+        'test_acc':   [],
+        'lr':         [],
+        # 【新增】每个epoch的梯度范数均值（代表梯度整体强度）
+        'grad_mean':  [],
+        # 【新增】每个epoch的梯度范数标准差（代表批次间梯度稳定性）
+        'grad_std':   [],
+    }
+
+    best_acc  = 0.0
+    best_path = f'results/best_{model_name}.pth'
+
+    # ── 开始训练循环 ──────────────────────────────────────────
+    print("开始训练...\n")
+    for epoch in range(1, CONFIG['epochs'] + 1):
+        t0 = time.time()
+
+        # 记录本轮开始时的学习率（scheduler.step()之前的值）
+        current_lr = optimizer.param_groups[0]['lr']
+
+        # ── 【修改2/3】：接收train_one_epoch的第三个返回值 ───
+        # 原版：train_loss, train_acc = train_one_epoch(...)
+        # 新版：多接收一个 batch_grads（本epoch每个batch的梯度范数列表）
+        train_loss, train_acc, batch_grads = train_one_epoch(
+            model, train_loader, criterion, optimizer, device
+        )
+
+        # 在测试集上评估
+        test_loss, test_acc = evaluate(
+            model, test_loader, criterion, device
+        )
+
+        # 更新学习率（在evaluate之后调用，避免影响本轮测试）
+        scheduler.step()
+
+        # 记录各项指标
+        history['train_loss'].append(train_loss)
+        history['train_acc'].append(train_acc)
+        history['test_loss'].append(test_loss)
+        history['test_acc'].append(test_acc)
+        history['lr'].append(current_lr)
+
+        # 【新增】记录本epoch的梯度范数均值和标准差
+        # np.mean/np.std 对 batch_grads 列表直接计算
+        history['grad_mean'].append(float(np.mean(batch_grads)))
+        history['grad_std'].append(float(np.std(batch_grads)))
+
+        # 若本epoch测试准确率创新高，保存模型权重
+        if test_acc > best_acc:
+            best_acc = test_acc
+            torch.save(model.state_dict(), best_path)
+
+        # 打印本轮训练摘要
+        elapsed = time.time() - t0
+        print(
+            f"Epoch [{epoch:3d}/{CONFIG['epochs']}] "
+            f"| LR: {current_lr:.5f} "
+            f"| Train Loss: {train_loss:.4f}  Acc: {train_acc:.2f}% "
+            f"| Test  Loss: {test_loss:.4f}  Acc: {test_acc:.2f}% "
+            f"| Best: {best_acc:.2f}% "
+            f"| GradNorm: {history['grad_mean'][-1]:.4f} "   # 【新增】打印梯度范数
+            f"| Time: {elapsed:.1f}s"
+        )
+
+    # ════════════════════════════════════════════════════════
+    # 训练结束：保存所有日志和图表
+    # ════════════════════════════════════════════════════════
+
+    # ── 保存完整训练日志（含梯度范数）────────────────────────
+    log_path = f'results/log_{model_name}.json'
+    with open(log_path, 'w') as f:
+        json.dump(history, f, indent=2)
+    print(f"\n✅ 训练日志已保存至 {log_path}")
+
+    # ── 【修改3/3】：单独保存梯度范数日志（compare.py专用）──
+    # compare.py 的 plot_grad_norm_compare() 会读取此文件
+    # 格式：{ "epoch_mean": [...], "epoch_std": [...] }
+    grad_log = {
+        'epoch_mean': history['grad_mean'],   # 每epoch均值列表
+        'epoch_std':  history['grad_std'],    # 每epoch标准差列表
+    }
+    grad_path = f'results/grad_norm_{model_name}.json'
+    with open(grad_path, 'w') as f:
+        json.dump(grad_log, f, indent=2)
+    print(f"✅ 梯度范数日志已保存至 {grad_path}")     # 【新增】
+
+    # ── 绘制训练曲线图 ────────────────────────────────────────
+    plot_and_save(history, model_name)
+
+    # ── 最终汇总 ──────────────────────────────────────────────
+    print(f"\n{'='*55}")
+    print(f"  训练完成！")
+    print(f"  最优 Test Accuracy : {best_acc:.2f}%")
+    print(f"  最优模型权重       : {best_path}")
+    print(f"  训练日志           : {log_path}")
+    print(f"  梯度范数日志       : {grad_path}")        # 【新增】
+    print(f"{'='*55}\n")
+
+
+# ── 程序入口 ──────────────────────────────────────────────────────
+if __name__ == '__main__':
+    main()
