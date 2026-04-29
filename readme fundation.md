@@ -148,6 +148,7 @@ Stages 1–4 follow a standard doubling pattern (channels ×2, spatial ÷2 at ea
 Replaces every convolutional pair with a **BasicBlock**. When channel dimensions change across stages, the shortcut uses a 1×1 convolution for alignment; otherwise it is a parameter-free identity mapping.
 
 x ──→ Conv3×3 → BN → ReLU → Conv3×3 → BN ──→ (+) → ReLU
+
 └────────── shortcut (Identity or Conv1×1+BN) ──┘
 
 | Stage       | Structure                      | Output Shape   | Parameters     | % Total   |
