@@ -81,6 +81,7 @@ Three blocks of paired 3×3 convolutions (channels: 3→16→32→64), each foll
 Structurally identical to the CNN above, with each convolutional pair replaced by a **BasicBlock** incorporating a skip connection. When input and output channels differ, the shortcut uses a 1×1 convolution for dimension alignment.
 
 x ──→ Conv3×3 → BN → ReLU → Conv3×3 → BN ──→ (+) → ReLU
+
 └──────────── shortcut (identity / 1×1 Conv) ──┘
 
 The skip connection adds only **2,832 parameters (+3.9%)** over the plain CNN, yet provides a direct gradient pathway through each block.
