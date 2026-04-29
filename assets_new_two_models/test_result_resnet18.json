@@ -1,0 +1,22 @@
+{
+  "model": "resnet18",
+  "total_acc": 93.25,
+  "per_class": {
+    "airplane": 93.89999999999999,
+    "automobile": 96.7,
+    "bird": 90.7,
+    "cat": 86.1,
+    "deer": 93.89999999999999,
+    "dog": 88.8,
+    "frog": 95.8,
+    "horse": 95.89999999999999,
+    "ship": 95.1,
+    "truck": 95.6
+  },
+  "conf_stats": {
+    "mean_all": 0.9776250123977661,
+    "mean_correct": 0.9873852133750916,
+    "mean_wrong": 0.8427900075912476,
+    "high_conf_ratio": 0.9341
+  }
+}

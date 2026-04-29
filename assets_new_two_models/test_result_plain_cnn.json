@@ -1,0 +1,22 @@
+{
+  "model": "plain_cnn",
+  "total_acc": 93.95,
+  "per_class": {
+    "airplane": 95.6,
+    "automobile": 97.0,
+    "bird": 92.2,
+    "cat": 86.9,
+    "deer": 94.8,
+    "dog": 89.2,
+    "frog": 96.2,
+    "horse": 96.0,
+    "ship": 96.1,
+    "truck": 95.5
+  },
+  "conf_stats": {
+    "mean_all": 0.9821472764015198,
+    "mean_correct": 0.9901400804519653,
+    "mean_wrong": 0.8580273985862732,
+    "high_conf_ratio": 0.9516
+  }
+}
