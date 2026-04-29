@@ -259,8 +259,8 @@ The CNN and MiniResNet results on CIFAR-10 are particularly noteworthy: despite 
 | ResNet18     | ~11.2M     | **93.25%**         |
 
 <p align="center">
-  <img src="assets_new_two_models/compare_loss.png" width="480"/>
-  <img src="assets_new_two_models/compare_acc.png" width="480"/>
+  <img src="assets_new_two_models/compare/compare_loss.png" width="480"/>
+  <img src="assets_new_two_models/compare/compare_acc.png" width="480"/>
 </p>
 <p align="center"><em>Training and test Loss (left) and Accuracy (right): Plain CNN-18 vs. ResNet18, 200 epochs.</em></p>
 
@@ -269,14 +269,14 @@ Plain CNN-18 achieves marginally higher final test accuracy (+0.70%), yet ResNet
 #### Per-Class Accuracy
 
 <p align="center">
-  <img src="assets_new_two_models/compare_per_class.png" width="620"/>
+  <img src="assets_new_two_models/compare/compare_per_class.png" width="620"/>
 </p>
 <p align="center"><em>Per-class test accuracy on CIFAR-10: Plain CNN-18 vs. ResNet18.</em></p>
 
 #### Gradient Norm Analysis
 
 <p align="center">
-  <img src="assets_new_two_models/compare_grad_norm.png" width="780"/>
+  <img src="assets_new_two_models/compare/compare_grad_norm.png" width="780"/>
 </p>
 <p align="center"><em>Gradient norm dynamics across 200 epochs: epoch mean, standard deviation,
 and box plot distribution.</em></p>
@@ -289,26 +289,26 @@ prediction samples (click to expand)</summary>
 
 **Confusion Matrices**
 <p>
-  <img src="assets_new_two_models/confusion_matrix_plain_cnn.png" width="380"/>
-  <img src="assets_new_two_models/confusion_matrix_resnet18.png" width="380"/>
+  <img src="assets_new_two_models/test/confusion_matrix_plain_cnn.png" width="380"/>
+  <img src="assets_new_two_models/test/confusion_matrix_resnet18.png" width="380"/>
 </p>
 
 **Per-Class Accuracy**
 <p>
-  <img src="assets_new_two_models/per_class_acc_plain_cnn.png" width="380"/>
-  <img src="assets_new_two_models/per_class_acc_resnet18.png" width="380"/>
+  <img src="assets_new_two_models/test/per_class_acc_plain_cnn.png" width="380"/>
+  <img src="assets_new_two_models/test/per_class_acc_resnet18.png" width="380"/>
 </p>
 
 **Confidence Distributions**
 <p>
-  <img src="assets_new_two_models/confidence_dist_plain_cnn.png" width="380"/>
-  <img src="assets_new_two_models/confidence_dist_resnet18.png" width="380"/>
+  <img src="assets_new_two_models/test/confidence_dist_plain_cnn.png" width="380"/>
+  <img src="assets_new_two_models/test/confidence_dist_resnet18.png" width="380"/>
 </p>
 
 **Prediction Samples** (green = correct, red = incorrect)
 <p>
-  <img src="assets_new_two_models/samples_plain_cnn.png" width="380"/>
-  <img src="assets_new_two_models/samples_resnet18.png" width="380"/>
+  <img src="assets_new_two_models/test/samples_plain_cnn.png" width="380"/>
+  <img src="assets_new_two_models/test/samples_resnet18.png" width="380"/>
 </p>
 
 </details>
@@ -319,9 +319,9 @@ prediction samples (click to expand)</summary>
 
 |             | Plain CNN-18                                                 | ResNet18                                                     |
 | ----------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| Loss        | <img src="assets_new_two_models/loss_plain_cnn.png" width="300"/> | <img src="assets_new_two_models/loss_resnet18.png" width="300"/> |
-| Accuracy    | <img src="assets_new_two_models/acc_plain_cnn.png" width="300"/> | <img src="assets_new_two_models/acc_resnet18.png" width="300"/> |
-| LR Schedule | <img src="assets_new_two_models/lr_plain_cnn.png" width="300"/> | <img src="assets_new_two_models/lr_resnet18.png" width="300"/> |
+| Loss        | <img src="assets_new_two_models/train/loss_plain_cnn.png" width="300"/> | <img src="assets_new_two_models/train/loss_resnet18.png" width="300"/> |
+| Accuracy    | <img src="assets_new_two_models/train/acc_plain_cnn.png" width="300"/> | <img src="assets_new_two_models/train/acc_resnet18.png" width="300"/> |
+| LR Schedule | <img src="assets_new_two_models/train/lr_plain_cnn.png" width="300"/> | <img src="assets_new_two_models/train/lr_resnet18.png" width="300"/> |
 
 </details>
 
